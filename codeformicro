@@ -1,0 +1,298 @@
+$MOD52	; This includes 8052 definitions for the Metalink assembler
+
+PULSADOR1 EQU INT0
+PULSADOR2 EQU INT1
+PULSADOR3 EQU P2.0
+PULSADOR4 EQU P2.1
+PULSADOR5 EQU P2.2
+LED1 EQU P2.3
+LED2 EQU P2.4
+LED3 EQU P2.5
+BPULSADOR BIT 20H.0
+PUERTA BIT 20H.1
+MBA BIT 20H.2
+
+ORG 0000H    ;Es donde empieza el programa
+JMP INICIO  ;3 Bits de direccion 1 de instruccin 2 de direccion
+
+ORG 0003H          ; Vector de interrupcion para INT0 (Pulsador 1)
+JMP ISR_PULSADOR1  ; Salta a la rutina de interrupcion del Pulsador 1
+
+ORG 0013H
+JMP INTERRUP1
+
+INICIO:
+; Verificar si Pulsador 3 es "0" (estado logico bajo) y Pulsador 4 no es "0" (estado logico alto)
+	SETB LED1
+	SETB LED2
+	SETB LED3
+	CLR PUERTA
+	SETB MBA
+	MOV TMOD,#21h
+	MOV TH1,#0FDh
+	CLR SM0
+	SETB SM1
+	SETB TR1
+    JB PULSADOR3, VERIFICAR_PULSADOR4  ; Si PULSADOR3 es 1, saltar a VERIFICAR_PULSADOR4
+    JNB PULSADOR4, PUERTA_ARRIBA      ; Si PULSADOR4 es 0, saltar a PUERTA_ARRIBA
+    CLR BPULSADOR                     ; PULSADOR3 es 0 y PULSADOR4 es 1, BPULSADOR = 0 (puerta arriba)
+    JMP CONTINUARAR
+
+VERIFICAR_PULSADOR4:
+    JNB PULSADOR4, PUERTA_ABAJO       ; Si PULSADOR4 es 0, saltar a PUERTA_ABAJO
+
+PUERTA_ARRIBA:
+    CLR BPULSADOR                     ; Puerta arriba
+    JMP CONTINUARAR
+
+PUERTA_ABAJO:
+    SETB BPULSADOR                    ; Puerta abajo
+    JMP CONTINUARAR
+
+CONTINUARAR:
+	SETB EX0        ; Habilita la interrupcion externa 1
+	SETB EX1
+    SETB EA         ; Habilita todas las interrupciones
+CONTINUAR:
+ 	JB PULSADOR3, NORMAL              ; Si PULSADOR3 es 1
+    JNB PULSADOR4, ERROR               ; Si PULSADOR4 es 0, ir a ERROR
+NORMAL:
+	JB PUERTA, PARPADEAR ;ENTRA A LA PUERTA EN EL CASO DE QUE ESTE PARPADEANDO
+	JMP CONTINUAR
+ERROR:
+	CLR EA
+	SETB LED1
+	SETB LED2
+	CLR LED3
+	JMP ERROR
+; Rutina de servicio de interrupcin para INT1 (PULSADOR1)
+ISR_PULSADOR1:
+    CLR EX0         ; Deshabilitar interrupcion externa 1 durante el manejo
+	CLR EA
+	SETB LED1
+	SETB LED2
+	CALL RETARDO2
+	JB MBA, UNO
+	CPL BPULSADOR  ; Cambiar el estado de BPULSADOR
+UNO:
+	SETB EX0        
+	SETB EA
+	SETB PUERTA
+	JB MBA, SALIR
+	SETB MBA
+SALIR2:
+	RETI
+
+SALIR:
+	CLR MBA
+	JMP SALIR2
+
+	
+PARPADEAR:
+; Verificar el estado de BPULSADOR
+	CLR PUERTA
+	SETB LED1
+	SETB LED2
+    JNB BPULSADOR, PARPADEAR_LED1 ; Si BPULSADOR es 0, saltar a PARPADEAR_LED1
+    JMP PARPADEAR_LED2           ; Si BPULSADOR es 1, saltar a PARPADEAR_LED2
+
+PARPADEAR_LED1:
+    CLR LED1
+	JB PULSADOR3, NORMA2              ; Si PULSADOR3 es 1
+    JNB PULSADOR4, ERROR               ; Si PULSADOR4 es 0, ir a ERROR
+NORMA2:
+	JB MBA, PARPADEAR_LED1
+    PARPADEAR1:
+		JB PULSADOR3, NORMAL2              ; Si PULSADOR3 es 1, NMa
+    	JNB PULSADOR4, ERROR               ; Si PULSADOR4 es 0, ir a ERROR
+	NORMAL2:
+        SETB LED1
+		JB BPULSADOR, PARPADEAR_LED2 ; Si BPULSADOR es 1, saltar a PARPADEAR_LED2	
+		JB PUERTA, PARPADEAR
+        CALL RETARDO
+		JB PUERTA, PARPADEAR
+        CLR LED1
+        CALL RETARDO
+		JB PUERTA, PARPADEAR
+        JNB PULSADOR4, CAMBIAR_ESTADO ; Si se pulsa PULSADOR3, cambiar estado
+        JMP PARPADEAR1           
+
+PARPADEAR_LED2:
+    CLR LED2
+	JB PULSADOR3, NORMA              ; Si PULSADOR3 es 1
+    JNB PULSADOR4, ERROR               ; Si PULSADOR4 es 0, ir a ERROR
+NORMA:
+	JB MBA, PARPADEAR_LED2
+    PARPADEAR2:
+		JB PULSADOR3, NORMAL3              ; Si PULSADOR3 es 0, verificar PULSADOR4
+    	JNB PULSADOR4, ERROR               ; Si PULSADOR4 es 0, ir a ERROR
+	NORMAL3:
+        SETB LED2
+		JNB BPULSADOR, PARPADEAR_LED1 ; Si BPULSADOR es 0, saltar a PARPADEAR_LED1
+        CALL RETARDO
+		JB PUERTA, PARPADEAR
+        CLR LED2
+        CALL RETARDO
+		JB PUERTA, PARPADEAR
+        JNB PULSADOR3, CAMBIAR_ESTADO ; Si se pulsa PULSADOR4, cambiar estado
+        JMP PARPADEAR2           
+
+CAMBIAR_ESTADO:
+	SETB LED2
+	SETB LED1
+	CLR MBA
+	CPL BPULSADOR  ; Cambiar el estado de BPULSADOR
+	CPL BPULSADOR  ; Cambiar el estado de BPULSADOR
+	JMP CONTINUARAR
+
+RETARDO2:
+    ; Rutina de retardo simple con tres niveles de bucle para aproximadamente 1 segundo
+    MOV R3, #22   ; Bucle exterior
+RETARDO_LOOP3:
+    MOV R1, #250 ; Bucle medio
+RETARDO_LOOP1:
+    MOV R2, #250 ; Bucle interior
+RETARDO_LOOP2:
+    DJNZ R2, RETARDO_LOOP2
+    DJNZ R1, RETARDO_LOOP1
+    DJNZ R3, RETARDO_LOOP3
+    RET
+; Configuracin del Timer 0 para un retardo de aproximadamente 1 segundo con un cristal de 11.058 MHz
+RETARDO:
+    ; Configurar el Timer 0 en modo 1 (16 bits)
+	CLR TR0
+	CLR TF0
+    MOV TMOD, #01H    ; Configura Timer 0 en modo 1 (16 bits)
+    MOV TH0, #3CH     ; Cargar TH0 para un retraso de 1 segundo
+    MOV TL0, #0B0H    ; Cargar TL0 para un retraso de 1 segundo
+    SETB TR0          ; Iniciar Timer 0
+
+ESPERAR_T0:
+    JNB TF0, ESPERAR_T0  ; Esperar hasta que TF0 se ponga en alto (el temporizador desborde)
+    CLR TR0           ; Detener Timer 0
+    CLR TF0           ; Limpiar la bandera de desbordamiento de Timer 0
+    RET
+
+INTERRUP1:
+	CLR EA
+	CLR RI
+	SETB LED1
+	SETB LED2
+	SETB LED3
+	SETB REN
+	JB RI,RECEPCION 
+NUMERO0:
+	MOV P1, #01000000b ;NUMERO 0
+	CALL RETARDO2
+	MOV A, #30h      ; Cargar el valor del dato en el registro A
+	ESPERAMOS0:
+	JNB PULSADOR2, NUMERO1
+	JB PULSADOR5, ENVIO
+	JB RI,RECEPCION
+	JMP ESPERAMOS0
+NUMERO1:
+	MOV P1, #01111001b ;NUMERO 1
+	CALL RETARDO2
+	MOV A, #31h      ; Cargar el valor del dato en el registro A
+	ESPERAMOS1:
+	JNB PULSADOR2, NUMERO2
+	JB PULSADOR5, ENVIO
+	JB RI,RECEPCION
+	JMP ESPERAMOS1
+NUMERO2:
+	MOV P1, #00100100b  ;NUMERO 2
+	CALL RETARDO2
+	MOV A, #32h      ; Cargar el valor del dato en el registro A
+	ESPERAMOS2:
+	JNB PULSADOR2, NUMERO3
+	JB PULSADOR5, ENVIO
+	JB RI,RECEPCION
+	JMP ESPERAMOS2
+NUMERO3:
+	MOV P1, #00110000b  ;NUMERO 3
+	CALL RETARDO2
+	MOV A, #33h      ; Cargar el valor del dato en el registro A
+	ESPERAMOS3:
+	JNB PULSADOR2, NUMERO4
+	JB PULSADOR5, ENVIO
+	JB RI,RECEPCION
+	JMP ESPERAMOS3
+INTERRUP11:
+JMP INTERRUP1
+NUMERO4:
+	MOV P1, #00011001b   ;NUMERO 4
+	CALL RETARDO2
+	MOV A, #34h      ; Cargar el valor del dato en el registro A
+	ESPERAMOS4:
+	JNB PULSADOR2, NUMERO5
+	JB PULSADOR5, ENVIO
+	JB RI,RECEPCION
+	JMP ESPERAMOS4
+ENVIO:
+MOV SBUF, A
+CLR LED3 ;PARA COMPROBAR QUE HA HABIDO COMUNICACION
+CALL RETARDO2
+SETB EA
+RETI
+RECEPCION:
+CLR LED3
+MOV A,SBUF 
+CJNE A, #39h, NEXT
+MOV P1, #00010000b        ;NUMERO 9
+JMP SALIDA
+NEXT:
+CJNE A, #30h, INTERRUP11
+MOV P1, #01000000b
+SALIDA:
+CALL RETARDO2
+SETB EA
+RETI
+NNUMERO0:
+JMP NUMERO0
+NUMERO5:
+	MOV P1, #00010010b    ;NUMERO 5
+	CALL RETARDO2
+	MOV A, #35h      ; Cargar el valor del dato en el registro A
+	ESPERAMOS5:
+	JNB PULSADOR2, NUMERO6
+	JB PULSADOR5, ENVIO
+	JB RI,RECEPCION
+	JMP ESPERAMOS5
+NUMERO6:
+	MOV P1, #00000010b     ;NUMERO 6
+	CALL RETARDO2
+	MOV A, #36h      ; Cargar el valor del dato en el registro A
+	ESPERAMOS6:
+	JNB PULSADOR2, NUMERO7
+	JB PULSADOR5, ENVIO
+	JB RI,RECEPCION
+	JMP ESPERAMOS6
+NUMERO7:
+	MOV P1, #01111000b      ;NUMERO 7
+	CALL RETARDO2
+	MOV A, #37h      ; Cargar el valor del dato en el registro A
+	ESPERAMOS7:
+	JNB PULSADOR2, NUMERO8
+	JB PULSADOR5, ENVIO
+	JB RI,RECEPCION
+	JMP ESPERAMOS7
+NUMERO8:
+	MOV P1, #00000000b       ;NUMERO 8
+	CALL RETARDO2
+	MOV A, #38h      ; Cargar el valor del dato en el registro A
+	ESPERAMOS8:
+	JNB PULSADOR2, NUMERO9
+	JB PULSADOR5, ENVIO
+	JB RI,RECEPCION
+	JMP ESPERAMOS8
+NUMERO9:
+	MOV P1, #00010000b        ;NUMERO 9
+	CALL RETARDO2
+	MOV A, #39h      ; Cargar el valor del dato en el registro A
+	ESPERAMOS9:
+	JNB PULSADOR2, NNUMERO0
+	JB PULSADOR5, ENVIO
+	JB RI,RECEPCION
+	JMP ESPERAMOS9
+
+END
